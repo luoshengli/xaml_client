@@ -46,7 +46,7 @@ namespace xaml_client
                     // B 方案：保留完整 Window，通过 Win32 SetParent 将 Window 的 HWND
                     // 重新设置为右侧预览区域的子窗口。这样 Window.Resources、Window.Content
                     // 以及 Content 内部的数据绑定/StaticResource 都继续由原 Window 持有。
-                    _embeddedWindowHost = new EmbeddedWindowHost(window);
+                    _embeddedWindowHost = new EmbeddedWindowHost(window, message => tb_info.Text = message);
                     b_result.Child = _embeddedWindowHost;
                     tb_info.Text = "正在嵌入 Window...";
                 }
@@ -120,13 +120,15 @@ namespace xaml_client
         private static readonly IntPtr HWND_TOP = new IntPtr(0);
 
         private readonly Window _window;
+        private readonly Action<string> _errorCallback;
         private IntPtr _containerHandle;
         private IntPtr _windowHandle;
         private bool _disposed;
 
-        public EmbeddedWindowHost(Window window)
+        public EmbeddedWindowHost(Window window, Action<string> errorCallback)
         {
             _window = window ?? throw new ArgumentNullException(nameof(window));
+            _errorCallback = errorCallback;
 
             // 这些属性只影响 Window 的顶层窗口外观，不会删除 Window.Content。
             // 预览区域不需要标题栏、边框和系统按钮。
@@ -170,11 +172,6 @@ namespace xaml_client
 
         protected override void DestroyWindowCore(HandleRef hwnd)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
             DetachWindow();
 
             if (hwnd.Handle != IntPtr.Zero)
@@ -225,8 +222,8 @@ namespace xaml_client
                     GWL_STYLE,
                     new IntPtr(style));
 
-                var parent = NativeMethods.SetParent(_windowHandle, _containerHandle);
-                if (parent == IntPtr.Zero && Marshal.GetLastWin32Error() != 0)
+                NativeMethods.SetParent(_windowHandle, _containerHandle);
+                if (NativeMethods.GetParent(_windowHandle) != _containerHandle)
                 {
                     throw new InvalidOperationException(
                         "无法将 Window HWND 嵌入预览区域，Win32 错误码：" +
@@ -245,15 +242,11 @@ namespace xaml_client
                 _window.Opacity = 1;
                 ResizeEmbeddedWindow();
             }
-            catch
+            catch (Exception ex)
             {
-                if (_window.IsVisible)
-                {
-                    _window.Close();
-                }
-
                 _windowHandle = IntPtr.Zero;
-                throw;
+                _errorCallback?.Invoke("Window 嵌入失败：" + ex.Message);
+                Dispose();
             }
         }
 
@@ -332,6 +325,9 @@ namespace xaml_client
 
             [DllImport("user32.dll", SetLastError = true)]
             internal static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            internal static extern IntPtr GetParent(IntPtr hwnd);
 
             [DllImport("user32.dll", SetLastError = true)]
             [return: MarshalAs(UnmanagedType.Bool)]

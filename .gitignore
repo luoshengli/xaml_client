@@ -1,0 +1,26 @@
+# Visual Studio / MSBuild
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build output
+Debug/
+Release/
+x64/
+x86/
+
+# ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# NuGet
+packages/
+*.nupkg
+
+# Logs / temporary files
+*.log
+*.tmp

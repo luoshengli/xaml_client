@@ -296,7 +296,7 @@ namespace xaml_client
             }
 
             _disposed = true;
-            DetachWindow();
+            base.Dispose();
         }
 
         private static class NativeMethods

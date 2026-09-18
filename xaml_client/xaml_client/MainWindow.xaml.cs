@@ -76,7 +76,6 @@ namespace xaml_client
             }
 
             b_result.Child = null;
-            b_result.Resources.Clear();
         }
 
         private static string RemoveXClassAttribute(string xaml)
@@ -244,7 +243,8 @@ namespace xaml_client
             }
             catch (Exception ex)
             {
-                _windowHandle = IntPtr.Zero;
+                // 不要先把 _windowHandle 清零，否则 Dispose() 无法把已经 Show()
+                // 的 Window 重新脱离父窗口并 Close，可能留下一个隐藏/孤立的顶层 HWND。
                 _errorCallback?.Invoke("Window 嵌入失败：" + ex.Message);
                 Dispose();
             }
@@ -257,14 +257,33 @@ namespace xaml_client
                 return;
             }
 
+            var width = Math.Max(1, (int)Math.Round(ActualWidth * GetDpiScaleX()));
+            var height = Math.Max(1, (int)Math.Round(ActualHeight * GetDpiScaleY()));
+
             NativeMethods.SetWindowPos(
                 _windowHandle,
                 HWND_TOP,
                 0,
                 0,
-                Math.Max(1, (int)Math.Round(ActualWidth)),
-                Math.Max(1, (int)Math.Round(ActualHeight)),
+                width,
+                height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
+        }
+
+        private double GetDpiScaleX()
+        {
+            var source = PresentationSource.FromVisual(this);
+            return source != null && source.CompositionTarget != null
+                ? source.CompositionTarget.TransformToDevice.M11
+                : 1.0;
+        }
+
+        private double GetDpiScaleY()
+        {
+            var source = PresentationSource.FromVisual(this);
+            return source != null && source.CompositionTarget != null
+                ? source.CompositionTarget.TransformToDevice.M22
+                : 1.0;
         }
 
         private void DetachWindow()

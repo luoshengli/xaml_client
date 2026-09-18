@@ -43,9 +43,6 @@ namespace xaml_client
 
                 if (root is Window window)
                 {
-                    // B 方案：保留完整 Window，通过 Win32 SetParent 将 Window 的 HWND
-                    // 重新设置为右侧预览区域的子窗口。这样 Window.Resources、Window.Content
-                    // 以及 Content 内部的数据绑定/StaticResource 都继续由原 Window 持有。
                     _embeddedWindowHost = new EmbeddedWindowHost(window, message => tb_info.Text = message);
                     b_result.Child = _embeddedWindowHost;
                     tb_info.Text = "正在嵌入 Window...";
@@ -80,7 +77,6 @@ namespace xaml_client
 
         private static string RemoveXClassAttribute(string xaml)
         {
-            // 支持 x:Class="..." 和 x:Class='...' 两种常见写法。
             const string pattern = @"\s+x:Class\s*=\s*(['""]).*?\1";
             return System.Text.RegularExpressions.Regex.Replace(
                 xaml,
@@ -96,13 +92,6 @@ namespace xaml_client
         }
     }
 
-    /// <summary>
-    /// 将一个真实的 WPF Window HWND 嵌入到 WPF 布局区域。
-    ///
-    /// WPF 本身不允许 Window 作为 Border.Child，因此这里不是把 Window
-    /// 当成普通 Visual 添加，而是创建一个 HwndHost 作为 HWND 容器，
-    /// 再通过 Win32 SetParent 将目标 Window 的 HWND 设为该容器的子窗口。
-    /// </summary>
     internal sealed class EmbeddedWindowHost : HwndHost, IDisposable
     {
         private const int WS_CHILD = 0x40000000;
@@ -113,9 +102,7 @@ namespace xaml_client
         private const int WS_MAXIMIZEBOX = 0x00010000;
         private const int WS_SYSMENU = 0x00080000;
         private const int WS_BORDER = 0x00800000;
-
         private const int GWL_STYLE = -16;
-
         private static readonly IntPtr HWND_TOP = new IntPtr(0);
 
         private readonly Window _window;
@@ -129,8 +116,6 @@ namespace xaml_client
             _window = window ?? throw new ArgumentNullException(nameof(window));
             _errorCallback = errorCallback;
 
-            // 这些属性只影响 Window 的顶层窗口外观，不会删除 Window.Content。
-            // 预览区域不需要标题栏、边框和系统按钮。
             _window.WindowStyle = WindowStyle.None;
             _window.ResizeMode = ResizeMode.NoResize;
             _window.ShowInTaskbar = false;
@@ -143,29 +128,16 @@ namespace xaml_client
         protected override HandleRef BuildWindowCore(HandleRef hwndParent)
         {
             _containerHandle = NativeMethods.CreateWindowEx(
-                0,
-                "static",
-                string.Empty,
-                WS_CHILD | WS_VISIBLE,
-                0,
-                0,
-                1,
-                1,
-                hwndParent.Handle,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                IntPtr.Zero);
+                0, "static", string.Empty, WS_CHILD | WS_VISIBLE,
+                0, 0, 1, 1, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
             if (_containerHandle == IntPtr.Zero)
             {
                 throw new InvalidOperationException(
-                    "无法创建 Window 嵌入容器，Win32 错误码：" +
-                    Marshal.GetLastWin32Error());
+                    "无法创建 Window 嵌入容器，Win32 错误码：" + Marshal.GetLastWin32Error());
             }
 
-            // HwndHost 已经创建了自己的 HWND，等到 WPF 完成布局后再显示和重设父窗口。
             Dispatcher.BeginInvoke(new Action(AttachWindow));
-
             return new HandleRef(this, _containerHandle);
         }
 
@@ -210,18 +182,14 @@ namespace xaml_client
                     throw new InvalidOperationException("Window 显示后没有获得有效 HWND。");
                 }
 
-                // 把顶层窗口改成真正的 WS_CHILD，然后挂到 HwndHost 的 HWND 下。
                 var style = NativeMethods.GetWindowLongPtr(_windowHandle, GWL_STYLE).ToInt64();
                 style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX |
                            WS_MAXIMIZEBOX | WS_SYSMENU | WS_BORDER);
                 style |= WS_CHILD | WS_VISIBLE;
 
-                NativeMethods.SetWindowLongPtr(
-                    _windowHandle,
-                    GWL_STYLE,
-                    new IntPtr(style));
-
+                NativeMethods.SetWindowLongPtr(_windowHandle, GWL_STYLE, new IntPtr(style));
                 NativeMethods.SetParent(_windowHandle, _containerHandle);
+
                 if (NativeMethods.GetParent(_windowHandle) != _containerHandle)
                 {
                     throw new InvalidOperationException(
@@ -230,10 +198,7 @@ namespace xaml_client
                 }
 
                 NativeMethods.SetWindowPos(
-                    _windowHandle,
-                    HWND_TOP,
-                    0,
-                    0,
+                    _windowHandle, HWND_TOP, 0, 0,
                     Math.Max(1, (int)Math.Round(ActualWidth)),
                     Math.Max(1, (int)Math.Round(ActualHeight)),
                     NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
@@ -243,8 +208,6 @@ namespace xaml_client
             }
             catch (Exception ex)
             {
-                // 不要先把 _windowHandle 清零，否则 Dispose() 无法把已经 Show()
-                // 的 Window 重新脱离父窗口并 Close，可能留下一个隐藏/孤立的顶层 HWND。
                 _errorCallback?.Invoke("Window 嵌入失败：" + ex.Message);
                 Dispose();
             }
@@ -261,12 +224,7 @@ namespace xaml_client
             var height = Math.Max(1, (int)Math.Round(ActualHeight * GetDpiScaleY()));
 
             NativeMethods.SetWindowPos(
-                _windowHandle,
-                HWND_TOP,
-                0,
-                0,
-                width,
-                height,
+                _windowHandle, HWND_TOP, 0, 0, width, height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
         }
 
@@ -331,18 +289,9 @@ namespace xaml_client
 
             [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
             internal static extern IntPtr CreateWindowEx(
-                int exStyle,
-                string className,
-                string windowName,
-                int style,
-                int x,
-                int y,
-                int width,
-                int height,
-                IntPtr parent,
-                IntPtr menu,
-                IntPtr instance,
-                IntPtr param);
+                int exStyle, string className, string windowName, int style,
+                int x, int y, int width, int height, IntPtr parent,
+                IntPtr menu, IntPtr instance, IntPtr param);
 
             [DllImport("user32.dll", SetLastError = true)]
             [return: MarshalAs(UnmanagedType.Bool)]
@@ -357,35 +306,22 @@ namespace xaml_client
             [DllImport("user32.dll", SetLastError = true)]
             [return: MarshalAs(UnmanagedType.Bool)]
             internal static extern bool SetWindowPos(
-                IntPtr hwnd,
-                IntPtr insertAfter,
-                int x,
-                int y,
-                int width,
-                int height,
-                uint flags);
+                IntPtr hwnd, IntPtr insertAfter, int x, int y,
+                int width, int height, uint flags);
 
-            [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr",
-                SetLastError = true)]
+            [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
             private static extern IntPtr GetWindowLongPtr64(IntPtr hwnd, int index);
 
-            [DllImport("user32.dll", EntryPoint = "GetWindowLong",
-                SetLastError = true)]
+            [DllImport("user32.dll", EntryPoint = "GetWindowLong", SetLastError = true)]
             private static extern int GetWindowLong32(IntPtr hwnd, int index);
 
-            [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr",
-                SetLastError = true)]
+            [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
             private static extern IntPtr SetWindowLongPtr64(
-                IntPtr hwnd,
-                int index,
-                IntPtr newValue);
+                IntPtr hwnd, int index, IntPtr newValue);
 
-            [DllImport("user32.dll", EntryPoint = "SetWindowLong",
-                SetLastError = true)]
+            [DllImport("user32.dll", EntryPoint = "SetWindowLong", SetLastError = true)]
             private static extern int SetWindowLong32(
-                IntPtr hwnd,
-                int index,
-                int newValue);
+                IntPtr hwnd, int index, int newValue);
 
             internal static IntPtr GetWindowLongPtr(IntPtr hwnd, int index)
             {
@@ -401,7 +337,7 @@ namespace xaml_client
             {
                 return IntPtr.Size == 8
                     ? SetWindowLongPtr64(hwnd, index, newValue)
-                    : new IntPtr(SetWindowLong32(hwnd, index, newValue));
+                    : new IntPtr(SetWindowLong32(hwnd, index, newValue.ToInt32()));
             }
         }
     }

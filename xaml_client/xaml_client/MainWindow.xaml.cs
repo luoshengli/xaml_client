@@ -288,7 +288,7 @@ namespace xaml_client
             _windowHandle = IntPtr.Zero;
         }
 
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
             if (_disposed)
             {
@@ -296,7 +296,13 @@ namespace xaml_client
             }
 
             _disposed = true;
-            base.Dispose();
+
+            if (disposing)
+            {
+                DetachWindow();
+            }
+
+            base.Dispose(disposing);
         }
 
         private static class NativeMethods
